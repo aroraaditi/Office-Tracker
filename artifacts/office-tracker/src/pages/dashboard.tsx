@@ -14,7 +14,6 @@ import {
   Building2,
   CheckCircle2,
   Loader2,
-  TrendingUp,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -144,11 +143,10 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      {/* Year stats — Days in Office + Total Workdays only */}
+      {/* Year stats — Days in Office */}
       {yearSummary && (
-        <motion.div key={year} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }} className="mb-6 grid grid-cols-2 gap-3">
+        <motion.div key={year} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }} className="mb-6">
           <StatBadge icon={Building2} label="Days in Office" value={totalOfficeDays} color="text-emerald-600" bg="bg-emerald-50" />
-          <StatBadge icon={TrendingUp} label="Total Workdays" value={yearSummary.totalWorkdays} color="text-violet-600" bg="bg-violet-50" />
         </motion.div>
       )}
 
