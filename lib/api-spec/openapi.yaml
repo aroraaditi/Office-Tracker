@@ -1,15 +1,18 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Office Attendance Tracker API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: attendance
+    description: Attendance day operations
+  - name: summary
+    description: Summary and analytics
 paths:
   /healthz:
     get:
@@ -24,6 +27,142 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /attendance:
+    get:
+      operationId: listAttendance
+      tags: [attendance]
+      summary: List all attendance records
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of attendance records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceDay"
+    post:
+      operationId: upsertAttendance
+      tags: [attendance]
+      summary: Create or update attendance for a date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttendanceInput"
+      responses:
+        "200":
+          description: Saved attendance record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceDay"
+
+  /attendance/{date}:
+    get:
+      operationId: getAttendance
+      tags: [attendance]
+      summary: Get attendance for a specific date
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            description: Date in YYYY-MM-DD format
+      responses:
+        "200":
+          description: Attendance record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceDay"
+        "404":
+          description: No record found
+    delete:
+      operationId: deleteAttendance
+      tags: [attendance]
+      summary: Delete (reset) attendance for a specific date
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /attendance/checkin:
+    post:
+      operationId: checkinToday
+      tags: [attendance]
+      summary: Quick check-in for today as Present
+      responses:
+        "200":
+          description: Today marked as Present
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceDay"
+
+  /summary/quarterly:
+    get:
+      operationId: getQuarterlySummary
+      tags: [summary]
+      summary: Get attendance summary grouped by quarter for a given year
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quarterly summary data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuarterSummary"
+
+  /summary/year:
+    get:
+      operationId: getYearSummary
+      tags: [summary]
+      summary: Get overall stats for a year
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Year summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearSummary"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +173,96 @@ components:
       required:
         - status
 
+    AttendanceDay:
+      type: object
+      required: [id, date, state]
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+          description: Date in YYYY-MM-DD format
+        state:
+          $ref: "#/components/schemas/DayState"
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    DayState:
+      type: string
+      enum:
+        - present
+        - company_leave
+        - personal_leave
+        - planned
+        - remote
+
+    AttendanceInput:
+      type: object
+      required: [date, state]
+      properties:
+        date:
+          type: string
+          description: Date in YYYY-MM-DD format
+        state:
+          $ref: "#/components/schemas/DayState"
+        note:
+          type: string
+
+    DeleteResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+
+    QuarterSummary:
+      type: object
+      required: [quarter, label, months, totalWeeks, presentDays, plannedDays, personalLeaveDays, companyLeaveDays, remoteDays, totalWorkdays]
+      properties:
+        quarter:
+          type: integer
+          description: Quarter number (1-4)
+        label:
+          type: string
+          description: e.g. "Q1 Jan - Mar"
+        months:
+          type: array
+          items:
+            type: integer
+        totalWeeks:
+          type: integer
+        presentDays:
+          type: integer
+        plannedDays:
+          type: integer
+        personalLeaveDays:
+          type: integer
+        companyLeaveDays:
+          type: integer
+        remoteDays:
+          type: integer
+        totalWorkdays:
+          type: integer
+
+    YearSummary:
+      type: object
+      required: [year, totalPresent, totalPlanned, totalPersonalLeave, totalCompanyLeave, totalRemote, totalWorkdays]
+      properties:
+        year:
+          type: integer
+        totalPresent:
+          type: integer
+        totalPlanned:
+          type: integer
+        totalPersonalLeave:
+          type: integer
+        totalCompanyLeave:
+          type: integer
+        totalRemote:
+          type: integer
+        totalWorkdays:
+          type: integer

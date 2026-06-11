@@ -1,10 +1,11 @@
-# [Project name]
+# Office Tracker
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A responsive, mobile-first web application for tracking office attendance and planning upcoming office days.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/office-tracker run dev` — run the frontend (port 21374)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,6 +15,7 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite + Tailwind CSS + Framer Motion + Wouter
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
@@ -22,15 +24,27 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — Single source of truth for all API contracts
+- `lib/db/src/schema/attendance.ts` — Attendance table schema
+- `artifacts/api-server/src/routes/attendance.ts` — All attendance + summary API routes
+- `artifacts/office-tracker/src/pages/dashboard.tsx` — Quarterly dashboard view
+- `artifacts/office-tracker/src/pages/calendar.tsx` — Monthly calendar view
+- `artifacts/office-tracker/src/components/day-modal.tsx` — Day logging modal/bottom sheet
+- `artifacts/office-tracker/src/lib/states.ts` — Day state config and colors
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- All dates stored as `YYYY-MM-DD` text strings for portability and simplicity
+- Day states are mutually exclusive: present, company_leave, personal_leave, planned, remote
+- "Remote" is the default/empty state — deleting a record resets to remote
+- Quarterly summary computed server-side to avoid large data transfers
+- `upsert` endpoint handles both create and update to simplify client logic
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Dashboard: year overview with quarterly cards showing attendance rate, progress bar, days in office, planned/leave breakdown. One-tap check-in for today.
+- Calendar: interactive monthly grid with color-coded day states, prev/next navigation, day detail modal with state selector + note field.
+- Navigation: bottom nav bar on mobile, sidebar on desktop.
 
 ## User preferences
 
@@ -38,7 +52,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After schema changes, run `pnpm run typecheck:libs` before running the API server typecheck
+- After OpenAPI spec changes, run codegen before touching routes or frontend hooks
+- The `/attendance/checkin` route must be registered BEFORE `/attendance/:date` in Express to avoid routing conflicts
 
 ## Pointers
 
