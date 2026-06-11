@@ -12,7 +12,6 @@ import {
   startOfMonth,
   endOfMonth,
   eachDayOfInterval,
-  isSameMonth,
   isToday,
   getDay,
   parseISO,
@@ -20,245 +19,143 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import DayModal from "@/components/day-modal";
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const QUARTER_MONTHS = [[1,2,3],[4,5,6],[7,8,9],[10,11,12]] as const;
+const QUARTER_NAMES = ["Q1 · Jan – Mar", "Q2 · Apr – Jun", "Q3 · Jul – Sep", "Q4 · Oct – Dec"];
+const CURRENT_YEAR = new Date().getFullYear();
+const CURRENT_QUARTER = Math.ceil((new Date().getMonth() + 1) / 3);
 
 export default function Calendar() {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [year, setYear]       = useState(CURRENT_YEAR);
+  const [quarter, setQuarter] = useState(CURRENT_QUARTER);
   const [direction, setDirection] = useState<1 | -1>(1);
 
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth() + 1;
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // Fetch the full year so we can filter per-month without extra requests
   const { data: records } = useListAttendance(
-    { year, month },
-    { query: { queryKey: getListAttendanceQueryKey({ year, month }) } }
+    { year },
+    { query: { queryKey: getListAttendanceQueryKey({ year }) } }
   );
 
   const recordMap = useMemo(() => {
     const map: Record<string, AttendanceDay> = {};
-    (records ?? []).forEach((r) => {
-      map[r.date] = r;
-    });
+    (records ?? []).forEach((r) => { map[r.date] = r; });
     return map;
   }, [records]);
 
-  const days = useMemo(() => {
-    const start = startOfMonth(currentDate);
-    const end = endOfMonth(currentDate);
-    return eachDayOfInterval({ start, end });
-  }, [currentDate]);
+  const months = QUARTER_MONTHS[quarter - 1];
 
-  const startOffset = getDay(startOfMonth(currentDate));
+  // Quarter-level stats
+  const quarterStats = useMemo(() => {
+    let present = 0, planned = 0, leave = 0;
+    for (const m of months) {
+      const mStr = String(m).padStart(2, "0");
+      const prefix = `${year}-${mStr}-`;
+      for (const [k, v] of Object.entries(recordMap)) {
+        if (!k.startsWith(prefix)) continue;
+        if (v.state === "present") present++;
+        else if (v.state === "planned") planned++;
+        else if (v.state === "personal_leave") leave++;
+      }
+    }
+    return { present, planned, leave };
+  }, [recordMap, months, year]);
 
-  const prevMonth = () => {
+  // Navigation
+  const goPrev = () => {
     setDirection(-1);
-    setCurrentDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    if (quarter === 1) { setQuarter(4); setYear((y) => y - 1); }
+    else setQuarter((q) => q - 1);
+  };
+  const goNext = () => {
+    setDirection(1);
+    if (quarter === 4) { setQuarter(1); setYear((y) => y + 1); }
+    else setQuarter((q) => q + 1);
+  };
+  const goToNow = () => {
+    setDirection(CURRENT_YEAR > year || (CURRENT_YEAR === year && CURRENT_QUARTER > quarter) ? 1 : -1);
+    setYear(CURRENT_YEAR);
+    setQuarter(CURRENT_QUARTER);
   };
 
-  const nextMonth = () => {
-    setDirection(1);
-    setCurrentDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
-  };
+  const isCurrentQ = year === CURRENT_YEAR && quarter === CURRENT_QUARTER;
+  const isMaxQ = year > CURRENT_YEAR || (year === CURRENT_YEAR && quarter >= CURRENT_QUARTER);
 
   const selectedRecord = selectedDate ? recordMap[selectedDate] ?? null : null;
 
-  // Summary counts for this month
-  const presentCount = Object.values(recordMap).filter((r) => r.state === "present").length;
-  const plannedCount = Object.values(recordMap).filter((r) => r.state === "planned").length;
-  const leaveCount = Object.values(recordMap).filter((r) => r.state === "personal_leave").length;
+  const officeDays = quarterStats.present + quarterStats.planned;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 md:py-8">
+    <div className="max-w-3xl mx-auto px-4 py-6 md:py-8">
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <motion.div
-          key={format(currentDate, "yyyy-MM")}
-          initial={{ opacity: 0, x: direction * 12 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.25 }}
-        >
-          <h1 className="text-2xl font-bold text-foreground">
-            {format(currentDate, "MMMM yyyy")}
-          </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {presentCount} in office · {plannedCount} planned · {leaveCount} leave
-          </p>
-        </motion.div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={prevMonth}
-            className="w-9 h-9 rounded-xl border border-border bg-card flex items-center justify-center text-foreground hover:bg-secondary transition-colors"
+      <div className="flex items-start justify-between mb-5">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`${year}-${quarter}`}
+            initial={{ opacity: 0, x: direction * 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: direction * -12 }}
+            transition={{ duration: 0.2 }}
           >
+            <h1 className="text-2xl font-bold text-foreground">{QUARTER_NAMES[quarter - 1]}</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {year} · {officeDays} in office
+              {quarterStats.leave > 0 && ` · ${quarterStats.leave} leave`}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="flex items-center gap-1 shrink-0 mt-0.5">
+          <button onClick={goPrev} className="w-9 h-9 rounded-xl border border-border bg-card flex items-center justify-center text-foreground hover:bg-secondary transition-colors">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => {
-              setDirection(new Date() > currentDate ? 1 : -1);
-              setCurrentDate(new Date());
-            }}
-            className="px-3 h-9 rounded-xl border border-border bg-card text-xs font-medium text-foreground hover:bg-secondary transition-colors"
-          >
-            Today
-          </button>
-          <button
-            onClick={nextMonth}
-            className="w-9 h-9 rounded-xl border border-border bg-card flex items-center justify-center text-foreground hover:bg-secondary transition-colors"
-          >
+          {!isCurrentQ && (
+            <button onClick={goToNow} className="px-3 h-9 rounded-xl border border-border bg-card text-xs font-medium text-foreground hover:bg-secondary transition-colors">
+              Now
+            </button>
+          )}
+          <button onClick={goNext} disabled={isMaxQ} className="w-9 h-9 rounded-xl border border-border bg-card flex items-center justify-center text-foreground hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-5">
         {(["present", "planned", "personal_leave", "company_leave"] as DayState[]).map((state) => {
           const cfg = STATE_CONFIG[state];
           return (
             <div key={state} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <div className={cn("w-2.5 h-2.5 rounded-full", cfg.dot)} />
+              <div className={cn("w-2 h-2 rounded-full", cfg.dot)} />
               <span>{cfg.label}</span>
             </div>
           );
         })}
       </div>
 
-      {/* Calendar grid */}
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-        {/* Weekday headers */}
-        <div className="grid grid-cols-7 border-b border-border">
-          {WEEKDAYS.map((d) => (
-            <div
-              key={d}
-              className="py-2.5 text-center text-xs font-medium text-muted-foreground"
-            >
-              {d}
-            </div>
+      {/* 3-month quarter grid */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${year}-${quarter}`}
+          initial={{ opacity: 0, x: direction * 30 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: direction * -30 }}
+          transition={{ duration: 0.22 }}
+          className="space-y-5"
+        >
+          {months.map((m) => (
+            <MonthBlock
+              key={`${year}-${m}`}
+              year={year}
+              month={m}
+              recordMap={recordMap}
+              onSelectDate={setSelectedDate}
+            />
           ))}
-        </div>
-
-        {/* Days grid */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={format(currentDate, "yyyy-MM")}
-            initial={{ opacity: 0, x: direction * 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: direction * -20 }}
-            transition={{ duration: 0.2 }}
-            className="grid grid-cols-7"
-          >
-            {/* Empty cells for offset */}
-            {Array.from({ length: startOffset }).map((_, i) => (
-              <div
-                key={`empty-${i}`}
-                className="border-b border-r border-border last:border-r-0"
-              />
-            ))}
-
-            {days.map((day, i) => {
-              const dateStr = format(day, "yyyy-MM-dd");
-              const record = recordMap[dateStr];
-              const state = (record?.state ?? "remote") as DayState;
-              const cfg = STATE_CONFIG[state];
-              const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-              const isPlanned = state === "planned";
-              const colIndex = (startOffset + i) % 7;
-              const isLastCol = colIndex === 6;
-
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => !isWeekend && setSelectedDate(dateStr)}
-                  disabled={isWeekend}
-                  className={cn(
-                    "relative min-h-[52px] md:min-h-[64px] p-1.5 md:p-2 border-b border-r border-border transition-all duration-150 text-left group",
-                    isLastCol && "border-r-0",
-                    !isWeekend && "hover:bg-secondary/60 cursor-pointer",
-                    isWeekend && "bg-secondary/30 cursor-default",
-                    record && !isWeekend && cn(cfg.bg),
-                    isPlanned && "bg-blue-50"
-                  )}
-                >
-                  {/* Day number */}
-                  <span
-                    className={cn(
-                      "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full",
-                      isToday(day)
-                        ? "bg-primary text-primary-foreground font-bold"
-                        : isWeekend
-                        ? "text-muted-foreground/50"
-                        : record
-                        ? cfg.color
-                        : "text-foreground"
-                    )}
-                  >
-                    {format(day, "d")}
-                  </span>
-
-                  {/* State indicator */}
-                  {record && !isWeekend && (
-                    <div className="mt-1">
-                      {isPlanned ? (
-                        <span
-                          className={cn(
-                            "text-[10px] font-semibold px-1.5 py-0.5 rounded-full border",
-                            cfg.bg,
-                            cfg.border,
-                            cfg.color,
-                            "border-dashed hidden md:inline-block"
-                          )}
-                        >
-                          Planned
-                        </span>
-                      ) : (
-                        <div className={cn("w-2 h-2 rounded-full md:w-1.5 md:h-1.5", cfg.dot)} />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Note indicator */}
-                  {record?.note && (
-                    <div className="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full bg-current opacity-30" />
-                  )}
-                </button>
-              );
-            })}
-
-            {/* Trailing empty cells */}
-            {(() => {
-              const totalCells = startOffset + days.length;
-              const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
-              return Array.from({ length: remaining }).map((_, i) => (
-                <div
-                  key={`trail-${i}`}
-                  className={cn(
-                    "border-b border-r border-border bg-secondary/20",
-                    i === remaining - 1 && "border-r-0"
-                  )}
-                />
-              ));
-            })()}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* Month summary */}
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <MiniStat
-          label="In office"
-          value={presentCount}
-          color="text-emerald-700"
-          bg="bg-emerald-50"
-          border="border-emerald-100"
-        />
-        <MiniStat
-          label="Planned days"
-          value={plannedCount}
-          color="text-blue-700"
-          bg="bg-blue-50"
-          border="border-blue-100"
-        />
-      </div>
+        </motion.div>
+      </AnimatePresence>
 
       {/* Day modal */}
       {selectedDate && (
@@ -272,25 +169,131 @@ export default function Calendar() {
   );
 }
 
-function MiniStat({
-  label,
-  value,
-  color,
-  bg,
-  border,
+// ─── Single month calendar block ────────────────────────────────────────────
+
+function MonthBlock({
+  year,
+  month,
+  recordMap,
+  onSelectDate,
 }: {
-  label: string;
-  value: number;
-  color: string;
-  bg: string;
-  border: string;
+  year: number;
+  month: number;
+  recordMap: Record<string, AttendanceDay>;
+  onSelectDate: (d: string) => void;
 }) {
+  const monthDate = new Date(year, month - 1, 1);
+  const days = eachDayOfInterval({ start: startOfMonth(monthDate), end: endOfMonth(monthDate) });
+  const startOffset = getDay(startOfMonth(monthDate));
+
+  const presentCount = days.filter((d) => {
+    const ds = format(d, "yyyy-MM-dd");
+    const r = recordMap[ds];
+    return r && (r.state === "present" || r.state === "planned");
+  }).length;
+
   return (
-    <div className={cn("rounded-xl border p-3 bg-card flex items-center gap-3", border)}>
-      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-base font-bold", bg, color)}>
-        {value}
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      {/* Month header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/30">
+        <h2 className="text-sm font-semibold text-foreground">
+          {format(monthDate, "MMMM yyyy")}
+        </h2>
+        <span className="text-xs text-muted-foreground font-medium">
+          {presentCount} office days
+        </span>
       </div>
-      <span className="text-sm text-muted-foreground">{label}</span>
+
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 border-b border-border">
+        {WEEKDAYS.map((d) => (
+          <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Days */}
+      <div className="grid grid-cols-7">
+        {/* Offset empties */}
+        {Array.from({ length: startOffset }).map((_, i) => (
+          <div key={`e-${i}`} className="border-b border-r border-border last:border-r-0 min-h-[44px] md:min-h-[52px] bg-secondary/10" />
+        ))}
+
+        {days.map((day, i) => {
+          const ds = format(day, "yyyy-MM-dd");
+          const record = recordMap[ds];
+          const state = (record?.state ?? "remote") as DayState;
+          const cfg = STATE_CONFIG[state];
+          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+          const isPlanned = state === "planned";
+          const colIndex = (startOffset + i) % 7;
+          const isLastCol = colIndex === 6;
+          const hasRecord = !!record && state !== "remote";
+
+          return (
+            <button
+              key={ds}
+              onClick={() => !isWeekend && onSelectDate(ds)}
+              disabled={isWeekend}
+              className={cn(
+                "relative min-h-[44px] md:min-h-[52px] p-1.5 border-b border-r border-border text-left transition-all duration-100",
+                isLastCol && "border-r-0",
+                !isWeekend && "hover:bg-secondary/60 cursor-pointer",
+                isWeekend && "bg-secondary/20 cursor-default",
+                hasRecord && !isWeekend && cfg.bg,
+                isPlanned && "bg-blue-50"
+              )}
+            >
+              <span className={cn(
+                "text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full",
+                isToday(day)
+                  ? "bg-primary text-primary-foreground font-bold"
+                  : isWeekend
+                  ? "text-muted-foreground/40"
+                  : hasRecord
+                  ? cfg.color
+                  : "text-foreground"
+              )}>
+                {format(day, "d")}
+              </span>
+
+              {/* State indicator */}
+              {hasRecord && !isWeekend && (
+                <div className="mt-0.5">
+                  {isPlanned ? (
+                    <span className={cn(
+                      "text-[9px] font-semibold px-1 py-0.5 rounded border border-dashed hidden sm:inline-block",
+                      cfg.bg, cfg.border, cfg.color
+                    )}>
+                      Planned
+                    </span>
+                  ) : (
+                    <div className={cn("w-1.5 h-1.5 rounded-full", cfg.dot)} />
+                  )}
+                </div>
+              )}
+
+              {/* Note dot */}
+              {record?.note && (
+                <div className="absolute bottom-1 right-1 w-1 h-1 rounded-full bg-current opacity-25" />
+              )}
+            </button>
+          );
+        })}
+
+        {/* Trailing empties */}
+        {(() => {
+          const total = startOffset + days.length;
+          const trail = total % 7 === 0 ? 0 : 7 - (total % 7);
+          return Array.from({ length: trail }).map((_, i) => (
+            <div key={`t-${i}`} className={cn(
+              "border-b border-r border-border bg-secondary/10 min-h-[44px] md:min-h-[52px]",
+              i === trail - 1 && "border-r-0"
+            )} />
+          ));
+        })()}
+      </div>
     </div>
   );
 }
