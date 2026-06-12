@@ -42,6 +42,30 @@ export interface DeleteResult {
   success: boolean;
 }
 
+export type BulkAttendanceBodyRecordsItemAction = typeof BulkAttendanceBodyRecordsItemAction[keyof typeof BulkAttendanceBodyRecordsItemAction];
+
+
+export const BulkAttendanceBodyRecordsItemAction = {
+  upsert: 'upsert',
+  delete: 'delete',
+} as const;
+
+export type BulkAttendanceBodyRecordsItem = {
+  date: string;
+  action: BulkAttendanceBodyRecordsItemAction;
+  state?: DayState;
+  note?: string;
+};
+
+export interface BulkAttendanceBody {
+  records: BulkAttendanceBodyRecordsItem[];
+}
+
+export interface BulkResult {
+  updated: number;
+  deleted: number;
+}
+
 export interface QuarterSummary {
   /** Quarter number (1-4) */
   quarter: number;
@@ -49,6 +73,8 @@ export interface QuarterSummary {
   label: string;
   months: number[];
   totalWeeks: number;
+  /** Weeks with zero office presence (past weeks only) */
+  wfhWeeks: number;
   presentDays: number;
   plannedDays: number;
   personalLeaveDays: number;

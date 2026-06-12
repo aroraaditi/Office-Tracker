@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { db, attendanceTable, DAY_STATES } from "@workspace/db";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { db, attendanceTable } from "@workspace/db";
+import { eq, and, gte, lte } from "drizzle-orm";
 import {
   ListAttendanceQueryParams,
   UpsertAttendanceBody,
+  BulkUpdateAttendanceBody,
   GetAttendanceParams,
   DeleteAttendanceParams,
   GetQuarterlySummaryQueryParams,
@@ -14,6 +15,10 @@ const router = Router();
 
 function todayStr(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+function dateStr(d: Date): string {
+  return d.toISOString().split("T")[0];
 }
 
 function getQuarterMonths(quarter: number): number[] {
@@ -42,6 +47,52 @@ function countWorkdays(year: number, quarter: number): number {
   return count;
 }
 
+function countWfhWeeks(
+  year: number,
+  quarter: number,
+  records: { date: string; state: string }[]
+): number {
+  const months = getQuarterMonths(quarter);
+  const qStart = new Date(year, months[0] - 1, 1);
+  const qEnd = new Date(year, months[2], 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const officeDates = new Set(
+    records
+      .filter((r) => r.state === "present" || r.state === "planned")
+      .map((r) => r.date)
+  );
+
+  let wfhWeeks = 0;
+  // Start from Monday of the week containing qStart
+  const cur = new Date(qStart);
+  const dow = cur.getDay();
+  cur.setDate(cur.getDate() - (dow === 0 ? 6 : dow - 1));
+
+  while (cur <= qEnd) {
+    let hasOfficeDay = false;
+    let hasPastWorkday = false;
+
+    for (let d = 0; d < 5; d++) {
+      const day = new Date(cur);
+      day.setDate(day.getDate() + d);
+      if (day > today) continue;
+      if (day < qStart || day > qEnd) continue;
+      hasPastWorkday = true;
+      if (officeDates.has(dateStr(day))) {
+        hasOfficeDay = true;
+        break;
+      }
+    }
+
+    if (hasPastWorkday && !hasOfficeDay) wfhWeeks++;
+    cur.setDate(cur.getDate() + 7);
+  }
+
+  return wfhWeeks;
+}
+
 // GET /attendance
 router.get("/attendance", async (req, res) => {
   const parsed = ListAttendanceQueryParams.safeParse(req.query);
@@ -60,9 +111,10 @@ router.get("/attendance", async (req, res) => {
     }
     if (month !== undefined) {
       const monthStr = String(month).padStart(2, "0");
-      const prefix = year ? `${year}-${monthStr}` : `-${monthStr}-`;
       records = records.filter((r) =>
-        year ? r.date.startsWith(`${year}-${monthStr}`) : r.date.slice(5, 7) === monthStr
+        year
+          ? r.date.startsWith(`${year}-${monthStr}`)
+          : r.date.slice(5, 7) === monthStr
       );
     }
 
@@ -73,7 +125,89 @@ router.get("/attendance", async (req, res) => {
   }
 });
 
-// POST /attendance (upsert)
+// POST /attendance/bulk  — must be before /attendance/:date
+router.post("/attendance/bulk", async (req, res) => {
+  const parsed = BulkUpdateAttendanceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid body", details: parsed.error.issues });
+    return;
+  }
+
+  const { records } = parsed.data;
+
+  try {
+    let updated = 0;
+    let deleted = 0;
+
+    await db.transaction(async (tx) => {
+      for (const item of records) {
+        if (item.action === "delete") {
+          await tx.delete(attendanceTable).where(eq(attendanceTable.date, item.date));
+          deleted++;
+        } else {
+          const state = item.state!;
+          const note = item.note ?? null;
+          const existing = await tx
+            .select()
+            .from(attendanceTable)
+            .where(eq(attendanceTable.date, item.date));
+
+          if (existing.length > 0) {
+            await tx
+              .update(attendanceTable)
+              .set({ state, note, updatedAt: new Date() })
+              .where(eq(attendanceTable.date, item.date));
+          } else {
+            await tx
+              .insert(attendanceTable)
+              .values({ date: item.date, state, note });
+          }
+          updated++;
+        }
+      }
+    });
+
+    res.json({ updated, deleted });
+  } catch (err) {
+    req.log.error({ err }, "Failed to bulk update attendance");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /attendance/checkin — must be before /attendance/:date
+router.post("/attendance/checkin", async (req, res) => {
+  const today = todayStr();
+
+  try {
+    const existing = await db
+      .select()
+      .from(attendanceTable)
+      .where(eq(attendanceTable.date, today));
+
+    let record;
+    if (existing.length > 0) {
+      const updated = await db
+        .update(attendanceTable)
+        .set({ state: "present", updatedAt: new Date() })
+        .where(eq(attendanceTable.date, today))
+        .returning();
+      record = updated[0];
+    } else {
+      const inserted = await db
+        .insert(attendanceTable)
+        .values({ date: today, state: "present" })
+        .returning();
+      record = inserted[0];
+    }
+
+    res.json(record);
+  } catch (err) {
+    req.log.error({ err }, "Failed to checkin today");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /attendance (upsert single)
 router.post("/attendance", async (req, res) => {
   const parsed = UpsertAttendanceBody.safeParse(req.body);
   if (!parsed.success) {
@@ -158,39 +292,6 @@ router.delete("/attendance/:date", async (req, res) => {
   }
 });
 
-// POST /attendance/checkin
-router.post("/attendance/checkin", async (req, res) => {
-  const today = todayStr();
-
-  try {
-    const existing = await db
-      .select()
-      .from(attendanceTable)
-      .where(eq(attendanceTable.date, today));
-
-    let record;
-    if (existing.length > 0) {
-      const updated = await db
-        .update(attendanceTable)
-        .set({ state: "present", updatedAt: new Date() })
-        .where(eq(attendanceTable.date, today))
-        .returning();
-      record = updated[0];
-    } else {
-      const inserted = await db
-        .insert(attendanceTable)
-        .values({ date: today, state: "present" })
-        .returning();
-      record = inserted[0];
-    }
-
-    res.json(record);
-  } catch (err) {
-    req.log.error({ err }, "Failed to checkin today");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 // GET /summary/quarterly
 router.get("/summary/quarterly", async (req, res) => {
   const parsed = GetQuarterlySummaryQueryParams.safeParse(req.query);
@@ -226,6 +327,7 @@ router.get("/summary/quarterly", async (req, res) => {
         label: labels[q - 1],
         months,
         totalWeeks: countWeeksInQuarter(year, q),
+        wfhWeeks: countWfhWeeks(year, q, qRecords),
         presentDays: qRecords.filter((r) => r.state === "present").length,
         plannedDays: qRecords.filter((r) => r.state === "planned").length,
         personalLeaveDays: qRecords.filter((r) => r.state === "personal_leave").length,

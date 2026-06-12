@@ -85,6 +85,24 @@ export const DeleteAttendanceResponse = zod.object({
 
 
 /**
+ * @summary Bulk upsert or delete multiple attendance records
+ */
+export const BulkUpdateAttendanceBody = zod.object({
+  "records": zod.array(zod.object({
+  "date": zod.string(),
+  "action": zod.enum(['upsert', 'delete']),
+  "state": zod.enum(['present', 'company_leave', 'personal_leave', 'planned', 'remote']).optional(),
+  "note": zod.string().optional()
+}))
+})
+
+export const BulkUpdateAttendanceResponse = zod.object({
+  "updated": zod.number(),
+  "deleted": zod.number()
+})
+
+
+/**
  * @summary Quick check-in for today as Present
  */
 export const CheckinTodayResponse = zod.object({
@@ -109,6 +127,7 @@ export const GetQuarterlySummaryResponseItem = zod.object({
   "label": zod.string().describe('e.g. \"Q1 Jan - Mar\"'),
   "months": zod.array(zod.number()),
   "totalWeeks": zod.number(),
+  "wfhWeeks": zod.number().describe('Weeks with zero office presence (past weeks only)'),
   "presentDays": zod.number(),
   "plannedDays": zod.number(),
   "personalLeaveDays": zod.number(),

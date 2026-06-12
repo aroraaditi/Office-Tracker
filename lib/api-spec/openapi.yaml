@@ -110,6 +110,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteResult"
 
+  /attendance/bulk:
+    post:
+      operationId: bulkUpdateAttendance
+      tags: [attendance]
+      summary: Bulk upsert or delete multiple attendance records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkAttendanceBody"
+      responses:
+        "200":
+          description: Bulk result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkResult"
+
   /attendance/checkin:
     post:
       operationId: checkinToday
@@ -219,9 +238,38 @@ components:
         success:
           type: boolean
 
+    BulkAttendanceBody:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          items:
+            type: object
+            required: [date, action]
+            properties:
+              date:
+                type: string
+              action:
+                type: string
+                enum: [upsert, delete]
+              state:
+                $ref: "#/components/schemas/DayState"
+              note:
+                type: string
+
+    BulkResult:
+      type: object
+      required: [updated, deleted]
+      properties:
+        updated:
+          type: integer
+        deleted:
+          type: integer
+
     QuarterSummary:
       type: object
-      required: [quarter, label, months, totalWeeks, presentDays, plannedDays, personalLeaveDays, companyLeaveDays, remoteDays, totalWorkdays]
+      required: [quarter, label, months, totalWeeks, presentDays, plannedDays, personalLeaveDays, companyLeaveDays, remoteDays, totalWorkdays, wfhWeeks]
       properties:
         quarter:
           type: integer
@@ -235,6 +283,9 @@ components:
             type: integer
         totalWeeks:
           type: integer
+        wfhWeeks:
+          type: integer
+          description: Weeks with zero office presence (past weeks only)
         presentDays:
           type: integer
         plannedDays:

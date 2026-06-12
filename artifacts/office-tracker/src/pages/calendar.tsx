@@ -2,8 +2,8 @@ import { useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight, CalendarDays, LayoutGrid, CheckSquare, X, Loader2, Check } from "lucide-react";
 import {
   useListAttendance,
-  useUpsertAttendance,
-  useDeleteAttendance,
+  useBulkUpdateAttendance,
+  BulkAttendanceBodyRecordsItemAction,
   getListAttendanceQueryKey,
   getGetQuarterlySummaryQueryKey,
   getGetYearSummaryQueryKey,
@@ -54,7 +54,16 @@ interface SelectProps {
 
 type ViewMode = "quarter" | "8week";
 
+function getUrlParams() {
+  const p = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  return {
+    q: parseInt(p.get("q") ?? "") || null,
+    year: parseInt(p.get("year") ?? "") || null,
+  };
+}
+
 export default function Calendar() {
+  const urlParams = useMemo(getUrlParams, []);
   const [view, setView] = useState<ViewMode>("quarter");
 
   // Multi-select state
@@ -129,6 +138,8 @@ export default function Calendar() {
               recordMap={recordMap}
               onSelectDate={(d) => !selectMode && setSelectedDate(d)}
               selectProps={selectProps}
+              initialQuarter={urlParams.q ?? CURRENT_QUARTER}
+              initialYear={urlParams.year ?? CURRENT_YEAR}
             />
           </motion.div>
         ) : (
@@ -182,9 +193,7 @@ function BulkActionBar({ selectedDates, recordMap, onClose }: {
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const upsert = useUpsertAttendance();
-  const deleteAttn = useDeleteAttendance();
-  const [applying, setApplying] = useState(false);
+  const bulk = useBulkUpdateAttendance();
   const count = selectedDates.size;
 
   const invalidateAll = () => {
@@ -193,38 +202,20 @@ function BulkActionBar({ selectedDates, recordMap, onClose }: {
     queryClient.invalidateQueries({ queryKey: getGetYearSummaryQueryKey() });
   };
 
-  const applyState = async (state: DayState) => {
-    if (count === 0 || applying) return;
-    setApplying(true);
-    try {
-      const dates = Array.from(selectedDates);
-      if (state === "remote") {
-        // Delete records that exist; skip dates with no record
-        const toDelete = dates.filter((d) => !!recordMap[d]);
-        await Promise.all(
-          toDelete.map((date) =>
-            new Promise<void>((resolve, reject) =>
-              deleteAttn.mutate({ date }, { onSuccess: () => resolve(), onError: reject })
-            )
-          )
-        );
-      } else {
-        await Promise.all(
-          dates.map((date) =>
-            new Promise<void>((resolve, reject) =>
-              upsert.mutate(
-                { data: { date, state, note: recordMap[date]?.note ?? undefined } },
-                { onSuccess: () => resolve(), onError: reject }
-              )
-            )
-          )
-        );
-      }
-      invalidateAll();
-      onClose();
-    } finally {
-      setApplying(false);
-    }
+  const applyState = (state: DayState) => {
+    if (count === 0 || bulk.isPending) return;
+    const records = Array.from(selectedDates).map((date) => ({
+      date,
+      action: state === "remote"
+        ? BulkAttendanceBodyRecordsItemAction.delete
+        : BulkAttendanceBodyRecordsItemAction.upsert,
+      ...(state !== "remote" && { state }),
+      ...(recordMap[date]?.note && { note: recordMap[date].note as string }),
+    }));
+    bulk.mutate(
+      { data: { records } },
+      { onSuccess: () => { invalidateAll(); onClose(); } }
+    );
   };
 
   return (
@@ -255,13 +246,13 @@ function BulkActionBar({ selectedDates, recordMap, onClose }: {
                 <button
                   key={state}
                   onClick={() => applyState(state)}
-                  disabled={applying}
+                  disabled={bulk.isPending}
                   className={cn(
                     "flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border text-center transition-all duration-150 hover:scale-105 active:scale-95 disabled:opacity-50",
                     cfg.bg, cfg.border
                   )}
                 >
-                  {applying ? (
+                  {bulk.isPending ? (
                     <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                   ) : (
                     <div className={cn("w-4 h-4 rounded-full", cfg.dot)} />
@@ -284,13 +275,15 @@ function BulkActionBar({ selectedDates, recordMap, onClose }: {
 
 // ─── Quarter view ─────────────────────────────────────────────────────────────
 
-function QuarterView({ recordMap, onSelectDate, selectProps }: {
+function QuarterView({ recordMap, onSelectDate, selectProps, initialQuarter, initialYear }: {
   recordMap: Record<string, AttendanceDay>;
   onSelectDate: (d: string) => void;
   selectProps: SelectProps;
+  initialQuarter: number;
+  initialYear: number;
 }) {
-  const [year, setYear]       = useState(CURRENT_YEAR);
-  const [quarter, setQuarter] = useState(CURRENT_QUARTER);
+  const [year, setYear]       = useState(initialYear);
+  const [quarter, setQuarter] = useState(initialQuarter);
   const [direction, setDirection] = useState<1 | -1>(1);
 
   const months = QUARTER_MONTHS[quarter - 1];

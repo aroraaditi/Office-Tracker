@@ -8,6 +8,10 @@
 
 export * from './attendanceDay';
 export * from './attendanceInput';
+export * from './bulkAttendanceBody';
+export * from './bulkAttendanceBodyRecordsItem';
+export * from './bulkAttendanceBodyRecordsItemAction';
+export * from './bulkResult';
 export * from './dayState';
 export * from './deleteResult';
 export * from './getQuarterlySummaryParams';

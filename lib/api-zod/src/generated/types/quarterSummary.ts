@@ -13,6 +13,8 @@ export interface QuarterSummary {
   label: string;
   months: number[];
   totalWeeks: number;
+  /** Weeks with zero office presence (past weeks only) */
+  wfhWeeks: number;
   presentDays: number;
   plannedDays: number;
   personalLeaveDays: number;

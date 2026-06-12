@@ -22,6 +22,8 @@ import type {
 import type {
   AttendanceDay,
   AttendanceInput,
+  BulkAttendanceBody,
+  BulkResult,
   DeleteResult,
   GetQuarterlySummaryParams,
   GetYearSummaryParams,
@@ -421,6 +423,77 @@ export const useDeleteAttendance = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteAttendanceMutationOptions(options));
+    }
+
+export const getBulkUpdateAttendanceUrl = () => {
+
+
+
+
+  return `/api/attendance/bulk`
+}
+
+/**
+ * @summary Bulk upsert or delete multiple attendance records
+ */
+export const bulkUpdateAttendance = async (bulkAttendanceBody: BulkAttendanceBody, options?: RequestInit): Promise<BulkResult> => {
+
+  return customFetch<BulkResult>(getBulkUpdateAttendanceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkAttendanceBody,)
+  }
+);}
+
+
+
+
+export const getBulkUpdateAttendanceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateAttendance>>, TError,{data: BodyType<BulkAttendanceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateAttendance>>, TError,{data: BodyType<BulkAttendanceBody>}, TContext> => {
+
+const mutationKey = ['bulkUpdateAttendance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkUpdateAttendance>>, {data: BodyType<BulkAttendanceBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkUpdateAttendance(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkUpdateAttendanceMutationResult = NonNullable<Awaited<ReturnType<typeof bulkUpdateAttendance>>>
+    export type BulkUpdateAttendanceMutationBody = BodyType<BulkAttendanceBody>
+    export type BulkUpdateAttendanceMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Bulk upsert or delete multiple attendance records
+ */
+export const useBulkUpdateAttendance = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateAttendance>>, TError,{data: BodyType<BulkAttendanceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkUpdateAttendance>>,
+        TError,
+        {data: BodyType<BulkAttendanceBody>},
+        TContext
+      > => {
+      return useMutation(getBulkUpdateAttendanceMutationOptions(options));
     }
 
 export const getCheckinTodayUrl = () => {
